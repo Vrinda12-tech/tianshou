@@ -1,6 +1,7 @@
 """Regression tests for the uniform random-action stream of CQL's conservative regularizer."""
 
 import math
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -76,3 +77,21 @@ def test_random_actions_are_uniform_in_the_box_and_weighted_by_its_density(
     assert (act <= high).all()
     # the values are importance weights Q(s, a) - log(1/volume) = Q(s, a) + d * log(high - low)
     torch.testing.assert_close(offset, torch.full_like(offset, d * math.log(high - low)))
+
+
+@pytest.mark.parametrize("calibrated", [False, True])
+def test_logsumexp_pools_all_samples_of_a_state(
+    calibrated: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The log-sum-exp must see (batch_size, 3 * num_repeat_actions, 1), not (batch_size * num_repeat, 3)."""
+    algo = make_cql(-1.0, 1.0, 3, calibrated=calibrated)
+    shapes: list[tuple[int, ...]] = []
+    original = torch.logsumexp
+
+    def recording_logsumexp(x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        shapes.append(tuple(x.shape))
+        return original(x, *args, **kwargs)
+
+    monkeypatch.setattr(torch, "logsumexp", recording_logsumexp)
+    algo._update_with_batch(make_batch(3))
+    assert shapes == [(BATCH_SIZE, 3 * NUM_REPEAT, 1)] * 2  # one per critic

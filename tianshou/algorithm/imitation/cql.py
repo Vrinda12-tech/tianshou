@@ -321,24 +321,29 @@ class CQL(OfflineAlgorithm[SACPolicy], LaggedNetworkPolyakUpdateAlgorithmMixin):
 
         random_value1, random_value2 = self._calc_random_values(tmp_obs, random_actions)
 
-        for value in [
+        # group the samples by state, such that the log-sum-exp below pools all
+        # 3 * num_repeat_actions samples of a state: (B * N, 1) -> (B, N, 1)
+        (
             current_pi_value1,
             current_pi_value2,
             next_pi_value1,
             next_pi_value2,
             random_value1,
             random_value2,
-        ]:
+        ) = (
             value.reshape(batch_size, self.num_repeat_actions, 1)
+            for value in (
+                current_pi_value1,
+                current_pi_value2,
+                next_pi_value1,
+                next_pi_value2,
+                random_value1,
+                random_value2,
+            )
+        )
 
         if self.calibrated:
-            returns = (
-                batch.calibration_returns.unsqueeze(1)
-                .repeat(
-                    (1, self.num_repeat_actions),
-                )
-                .view(-1, 1)
-            )
+            returns = batch.calibration_returns.reshape(batch_size, 1, 1)
             random_value1 = torch.max(random_value1, returns)
             random_value2 = torch.max(random_value2, returns)
 
